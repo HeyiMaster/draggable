@@ -1,16 +1,37 @@
+import AbstractPlugin from 'shared/AbstractPlugin';
+
 const onInitialize = Symbol('onInitialize');
 const onDestroy = Symbol('onDestroy');
+const decorateElements = Symbol('decorateElements');
+const stripElements = Symbol('stripElements');
 
 const ARIA_GRABBED = 'aria-grabbed';
 const ARIA_LABEL = 'aria-label';
+const ARIA_LABELLED_BY = 'aria-labelledby';
 const TABINDEX = 'tabindex';
+const ROLE = 'role';
+
+/**
+ * Focusable default options
+ * @property {Object} defaultOptions
+ * @property {String} defaultOptions.draggableRole
+ * @property {String} defaultOptions.containerRole
+ * @property {String} defaultOptions.logLevel
+ * @type {Object}
+ */
+const defaultOptions = {
+  draggableRole: 'gridcell',
+  containerRole: 'grid',
+  logLevel: 'warn',
+};
 
 /**
  * Focusable plugin
  * @class Focusable
  * @module Focusable
+ * @extends AbstractPlugin
  */
-export default class Focusable {
+export default class Focusable extends AbstractPlugin {
 
   /**
    * Focusable constructor.
@@ -18,13 +39,20 @@ export default class Focusable {
    * @param {Draggable} draggable - Draggable instance
    */
   constructor(draggable) {
+    super(draggable);
 
     /**
-     * Draggable instance
-     * @property draggable
-     * @type {Draggable}
+     * Focusable options
+     * @property {Object} options
+     * @property {String} options.draggableRole
+     * @property {String} options.containerRole
+     * @property {String|null} options.logLevel
+     * @type {Object}
      */
-    this.draggable = draggable;
+    this.options = {
+      ...defaultOptions,
+      ...this.getOptions(),
+    };
 
     /**
      * Draggable elements
@@ -42,6 +70,8 @@ export default class Focusable {
 
     this[onInitialize] = this[onInitialize].bind(this);
     this[onDestroy] = this[onDestroy].bind(this);
+    this[decorateElements] = this[decorateElements].bind(this);
+    this[stripElements] = this[stripElements].bind(this);
   }
 
   /**
@@ -67,6 +97,14 @@ export default class Focusable {
   }
 
   /**
+   * Returns options passed through draggable
+   * @return {Object}
+   */
+  getOptions() {
+    return this.draggable.options.focusable || {};
+  }
+
+  /**
    * Intialize handler
    * @private
    */
@@ -82,10 +120,7 @@ export default class Focusable {
     }
 
     // Can wait until the next best frame is available
-    requestAnimationFrame(() => {
-      this.draggableElements.forEach(decorateDraggableElement);
-      this.containerElements.forEach(decorateContainerElement);
-    });
+    requestAnimationFrame(this[decorateElements]);
   }
 
   /**
@@ -94,86 +129,113 @@ export default class Focusable {
    */
   [onDestroy]() {
     // Can wait until the next best frame is available
-    requestAnimationFrame(() => {
-      this.draggableElements.forEach(stripElement);
-      this.containerElements.forEach(stripElement);
-    });
+    requestAnimationFrame(this[stripElements]);
+  }
+
+  [decorateElements]() {
+    const elements = [
+      ...this.draggableElements.map((element) => decorateElement(element, {role: this.options.draggableRole})),
+      ...this.containerElements.map((element) => decorateElement(element, {role: this.options.containerRole})),
+    ];
+
+    const elementsWithMissingAriaLabel = elements.filter((element) => element.hasMissingAriaLabel);
+    const hasElementsWithMissingAriaLabel = (elementsWithMissingAriaLabel.length !== 0);
+    const logger = console[this.options.logLevel]; // eslint-disable-line no-console
+
+    if (hasElementsWithMissingAriaLabel && logger) {
+      logger(
+        '[Draggable] The following elements are missing an aria-label or aria-labelledby attribute.' +
+        'This is just a reminder from draggable making sure you build an accessible' +
+        'experience. To turn this message of, a',
+        elementsWithMissingAriaLabel,
+      );
+    }
+  }
+
+  [stripElements]() {
+    this.draggableElements.forEach((element) => stripElement(element));
+    this.containerElements.forEach((element) => stripElement(element));
   }
 }
 
 /**
  * Drag start handler sets aria-grabbed attribute and focuses on source
+ * @param {DragStartEvent} dragStartEvent
  */
 function onDragStart({source}) {
   source.setAttribute(ARIA_GRABBED, true);
-  setTimeout(() => {
-    source.focus();
-  }, 0);
+  setTimeout(() => source.focus(), 0);
 }
 
 /**
  * Drag stop handler sets aria-grabbed attribute and focuses on original source
+ * @param {DragStopEvent} dragStopEvent
  */
 function onDragStop({source, originalSource}) {
   source.setAttribute(ARIA_GRABBED, false);
-  setTimeout(() => {
-    originalSource.focus();
-  }, 0);
+  setTimeout(() => originalSource.focus(), 0);
 }
 
 /**
- * Decorates element with aria and tabindex attribute
+ * Keeps track of all the elements that are missing tabindex attributes
+ * so they can be reset when draggable gets destroyed
+ * @const {HTMLElement[]} elementsWithMissingTabIndex
  */
-function decorateDraggableElement(element) {
-  const missingTabindex = !element.getAttribute(TABINDEX);
-  const missingAriaLabel = !element.getAttribute(ARIA_LABEL);
+const elementsWithMissingTabIndex = [];
 
-  if (missingTabindex) {
-    element.setAttribute(`${TABINDEX}-set`, true);
+/**
+ * Keeps track of all the elements that are missing role attributes
+ * so they can be reset when draggable gets destroyed
+ * @const {HTMLElement[]} elementsWithMissingRole
+ */
+const elementsWithMissingRole = [];
+
+/**
+ * Decorates element with tabindex and role attributes
+ * @param {HTMLElement} element
+ * @return {Object}
+ * @private
+ */
+function decorateElement(element, {role}) {
+  const hasMissingTabIndex = !element.getAttribute(TABINDEX);
+  const hasMissingAriaLabel = !element.getAttribute(ARIA_LABEL) || !element.getAttribute(ARIA_LABELLED_BY);
+  const hasMissingRole = !element.getAttribute(ROLE);
+
+  if (hasMissingTabIndex) {
+    elementsWithMissingTabIndex.push(element);
     element.setAttribute(TABINDEX, 0);
   }
 
-  if (missingAriaLabel) {
-    element.setAttribute(`${ARIA_LABEL}-set`, true);
-    element.setAttribute(ARIA_LABEL, 'Draggable Item');
+  if (hasMissingRole) {
+    elementsWithMissingRole.push(element);
+    element.setAttribute(ROLE, role);
   }
 
   element.setAttribute(ARIA_GRABBED, false);
+
+  return {
+    hasMissingAriaLabel,
+    element,
+  };
 }
 
 /**
- * Decorates container element with aria and tabindex attribute
- */
-function decorateContainerElement(element) {
-  const missingTabindex = !element.getAttribute(TABINDEX);
-  const missingAriaLabel = !element.getAttribute(ARIA_LABEL);
-
-  if (missingTabindex) {
-    element.setAttribute(`${TABINDEX}-set`, true);
-    element.setAttribute(TABINDEX, 0);
-  }
-
-  if (missingAriaLabel) {
-    element.setAttribute(`${ARIA_LABEL}-set`, true);
-    element.setAttribute(ARIA_LABEL, 'Container with draggable items');
-  }
-}
-
-/**
- * Removes elements aria and tabindex attributes
+ * Removes elements aria, tabindex and role attributes
+ * @param {HTMLElement} element
+ * @private
  */
 function stripElement(element) {
-  const tabindexSet = Boolean(element.getAttribute(`${TABINDEX}-set`));
-  const arialLabelSet = Boolean(element.getAttribute(`${ARIA_LABEL}-set`));
+  const tabIndexElementPosition = elementsWithMissingTabIndex.indexOf(element);
+  const roleElementPosition = elementsWithMissingRole.indexOf(element);
 
-  if (arialLabelSet) {
-    element.removeAttribute(ARIA_LABEL);
-    element.removeAttribute(`${ARIA_LABEL}-set`);
+  if (tabIndexElementPosition !== -1) {
+    element.removeAttribute(TABINDEX);
+    elementsWithMissingTabIndex.splice(tabIndexElementPosition, 1);
   }
 
-  if (tabindexSet) {
-    element.removeAttribute(TABINDEX);
-    element.removeAttribute(`${TABINDEX}-set`);
+  if (roleElementPosition !== -1) {
+    element.removeAttribute(ROLE);
+    elementsWithMissingRole.splice(roleElementPosition, 1);
   }
 
   element.removeAttribute(ARIA_GRABBED);
