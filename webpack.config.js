@@ -46,6 +46,7 @@ module.exports = [
   createConfig({name: 'Collidable', filename: 'collidable', path: 'plugins/', source: 'Plugins/Collidable/index'}),
   createConfig({name: 'Snappable', filename: 'snappable', path: 'plugins/', source: 'Plugins/Snappable/index'}),
   createConfig({name: 'SwapAnimation', filename: 'swap-animation', path: 'plugins/', source: 'Plugins/SwapAnimation/index'}),
+  createConfig({name: 'ResizeMirror', filename: 'resize-mirror', path: 'plugins/', source: 'Plugins/ResizeMirror/index'}),
 
   createConfig({name: 'utils', filename: 'utils', source: 'shared/utils/index'}),
 ];
