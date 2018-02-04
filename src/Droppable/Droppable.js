@@ -2,8 +2,10 @@ import {closest} from 'shared/utils';
 import Draggable from './../Draggable';
 
 import {
-  DroppableOverEvent,
-  DroppableOutEvent,
+  DroppableStartEvent,
+  DroppableDroppedEvent,
+  DroppableReleasedEvent,
+  DroppableStopEvent,
 } from './DroppableEvent';
 
 const onDragStart = Symbol('onDragStart');
@@ -147,6 +149,18 @@ export default class Droppable extends Draggable {
       return;
     }
 
+    const droppableStartEvent = new DroppableStartEvent({
+      dragEvent: event,
+      droppable,
+    });
+
+    this.trigger(droppableStartEvent);
+
+    if (droppableStartEvent.canceled()) {
+      event.cancel();
+      return;
+    }
+
     this.initialDroppable = droppable;
 
     for (const droppableElement of this.droppables) {
@@ -184,7 +198,14 @@ export default class Droppable extends Draggable {
    * @private
    * @param {DragStopEvent} event - Drag stop event
    */
-  [onDragStop]() {
+  [onDragStop](event) {
+    const droppableStopEvent = new DroppableStopEvent({
+      dragEvent: event,
+      droppable: this.lastDroppable || this.initialDroppable,
+    });
+
+    this.trigger(droppableStopEvent);
+
     const occupiedClass = this.getClassNameFor('droppable:occupied');
 
     for (const droppable of this.droppables) {
@@ -207,14 +228,14 @@ export default class Droppable extends Draggable {
    * @param {HTMLElement} droppable - Droppable element to drop draggable into
    */
   [drop](event, droppable) {
-    const droppableOverEvent = new DroppableOverEvent({
+    const droppableDroppedEvent = new DroppableDroppedEvent({
       dragEvent: event,
       droppable,
     });
 
-    this.trigger(droppableOverEvent);
+    this.trigger(droppableDroppedEvent);
 
-    if (droppableOverEvent.canceled()) {
+    if (droppableDroppedEvent.canceled()) {
       return false;
     }
 
@@ -236,14 +257,14 @@ export default class Droppable extends Draggable {
    * @param {DragMoveEvent} event - Drag move event
    */
   [release](event) {
-    const droppableOutEvent = new DroppableOutEvent({
+    const droppableReleasedEvent = new DroppableReleasedEvent({
       dragEvent: event,
       droppable: this.lastDroppable,
     });
 
-    this.trigger(droppableOutEvent);
+    this.trigger(droppableReleasedEvent);
 
-    if (droppableOutEvent.canceled()) {
+    if (droppableReleasedEvent.canceled()) {
       return;
     }
 
